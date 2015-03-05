@@ -96,8 +96,8 @@ create procedure proc_maj_clients
 as
 	begin
 		declare
-		@curseurClientsNW as cursor,	-- Curseur des clients dans Northwind.
-		@idClientDC as int,				-- ID du client dans la dimension client.
+		@curseurClientsNW as cursor,    -- Curseur des clients dans Northwind.
+		@idClientDC as int,             -- ID du client dans la dimension client.
 		@nomContact as nvarchar(30),
 		@adresse as nvarchar(60),
 		@nomVille as nvarchar(15),
