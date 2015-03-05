@@ -105,3 +105,48 @@ as
 	end
 go
 
+-- Procédure permettant d'ajouter des nouveaux produits.
+create procedure proc_ajout_produits
+as
+	begin
+		declare
+		@curseurProduits as cursor,
+		@nomProduit as nvarchar(40),
+		@nomFournisseur as nvarchar(40),
+		@categorie as nvarchar(15),
+		@pays as nvarchar(15),
+		@systemeMesure as nvarchar(20),
+		@nbOccurences as int;
+		
+		set @curseurProduits = cursor for
+			select p.productName, s.companyName, c.categoryName, s.country, p.quantityPerUnit
+			from northwind.dbo.products as p
+				inner join northwind.dbo.suppliers as s on p.supplierId = s.supplierId
+				inner join northwind.dbo.categories as c on p.categoryId = c.categoryId;
+		
+		open @curseurProduits;
+		fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure;
+			
+		while @@fetch_status = 0
+		begin
+			set @nbOccurences = (
+				select count(*) from tp2_entrepot.dbo.dimension_produit
+				where 
+					nom_produit=@nomProduit and 
+					nom_fournisseur=@nomFournisseur and 
+					categorie=@categorie and 
+					pays_fournisseur=@pays and 
+					systeme_mesure=@systemeMesure
+			);
+			
+			if @nbOccurences = 0
+				insert into tp2_entrepot.dbo.dimension_produit values (
+					@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure
+				);
+			
+			fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure;
+		end -- END WHILE
+		
+		close @curseurProduits;
+	end
+go
