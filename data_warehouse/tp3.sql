@@ -4,20 +4,26 @@
 -- Description:	TP3
 -- =============================================
 
-use Northwind;
+use tp2_entrepot;
 go
 
 -- Drop Procedures
-
 IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_maj_fv')
    DROP PROCEDURE proc_maj_fv
 GO
 
-IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_ajout_clients')
-   DROP PROCEDURE proc_ajout_clients
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_maj_clients')
+   DROP PROCEDURE proc_maj_clients
 GO
 
--- Procédure permettant la mise à jour du fait vente.
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_maj_produits')
+   DROP PROCEDURE proc_maj_produits
+GO
+
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'FN' AND name = 'func_recupere_continent')
+   DROP FUNCTION func_recupere_continent
+GO
+
 create procedure proc_maj_fv
 as
 	begin
@@ -68,45 +74,87 @@ as
 	end
 go
 
--- Procédure permettant d'ajouter des nouveaux clients.
-create procedure proc_ajout_clients
+create function func_recupere_continent (@nomPays nvarchar(15))
+	returns nvarchar(100)
 as
 	begin
 		declare
-		@curseurClients as cursor,
+		@TSQL as nvarchar(4000),
+		@continent as nvarchar(100);
+
+		SELECT @TSQL = N'SELECT @ContinentOut = continent FROM OPENQUERY(ORACLE,''SELECT continent FROM system.corrpayscont WHERE lower(country) = lower(''''' + @nomPays + ''''')'')'
+		exec sp_executesql 
+		@TSQL, 
+		N'@ContinentOut nvarchar(100) OUT', 
+		@ContinentOut=@continent OUT
+
+		return @continent;
+	end
+go
+
+create procedure proc_maj_clients
+as
+	begin
+		declare
+		@curseurClientsNW as cursor,	-- Curseur des clients dans Northwind.
+		@idClientDC as int,				-- ID du client dans la dimension client.
 		@nomContact as nvarchar(30),
+		@adresse as nvarchar(60),
 		@nomVille as nvarchar(15),
 		@nomPays as nvarchar(15),
 		@nbOccurences as int;
 		
-		set @curseurClients = cursor for
-			select contactName, city, country
+		set @curseurClientsNW = cursor for
+			select contactName, city, country, address
 			from northwind.dbo.customers;
 			
-		open @curseurClients;
-		fetch @curseurClients into @nomContact, @nomVille, @nomPays;
+		open @curseurClientsNW;
+		fetch @curseurClientsNW into @nomContact, @nomVille, @nomPays, @adresse;
 		
 		while @@fetch_status = 0
 		begin
+			-- Compte le nombre d'occurences du client dans la dimension client.
 			set @nbOccurences = (
 				select count(*) from tp2_entrepot.dbo.dimension_client
 				where nom_contact=@nomContact and nom_ville=@nomVille and nom_pays=@nomPays
 			);
 			
+			-- S'il n'y a pas d'occurences le client est ajouté à la dimension client.
+			-- Sinon pour chaque occurences le client est ajouté ayant comme clé étrangère la clé primarei de celui qui le précède.
+			-- (principe de liste chaînée)
 			if @nbOccurences = 0
-				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays) values (
-					@nomContact, @nomVille, @nomPays
+				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent) values (
+					@nomContact, @nomVille, @nomPays, dbo.func_recupere_continent(@nomPays)
 				);
+			else
+			begin
+				set @idClientDC = (
+					select id_client 
+					from tp2_entrepot.dbo.dimension_client 
+					where 
+					id_ancient_client = (
+						select top 1 id_ancient_client 
+						from tp2_entrepot.dbo.dimension_client 
+						where 
+							nom_contact = @nomContact and 
+							nom_ville = @nomVille and 
+							nom_pays = @nomPays
+						order by id_ancient_client desc
+					) 
+				);
+				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, id_ancient_client) values (
+					@nomContact, @nomVille, @nomPays, @idClientDC
+				);
+			end -- END ELSE
 					
-			fetch @curseurClients into @nomContact, @nomVille, @nomPays;
+			fetch @curseurClientsNW into @nomContact, @nomVille, @nomPays, @adresse;
 		end -- END WHILE
 		
-		close @curseurClients;
+		close @curseurClientsNW;
 	end
 go
 
--- Procédure permettant d'ajouter des nouveaux produits.
-create procedure proc_ajout_produits
+create procedure proc_maj_produits
 as
 	begin
 		declare
