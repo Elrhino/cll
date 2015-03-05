@@ -13,6 +13,10 @@ IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_maj_fv')
    DROP PROCEDURE proc_maj_fv
 GO
 
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_ajout_clients')
+   DROP PROCEDURE proc_ajout_clients
+GO
+
 -- Procédure permettant la mise à jour du fait vente.
 create procedure proc_maj_fv
 as
@@ -51,22 +55,53 @@ as
 			where orderDate > @dateDerniereVenteFV
 			order by orderDate;
 		else
-			begin
-				print('Rien à mettre à jour.');	
-				return;
-			end -- END IF
-			
-		open @curseurVentes;
-		fetch @curseurVentes 
-			into @unitPrice, @quantity, @orderId, @customerId, @employeeId, @productId;
-			
-		while @@fetch_status = 0
 		begin
-			insert into tp2_entrepot.dbo.dimension_client
-			select contactName, city, country 
-			from Northwind.dbo.Customers
-			where customerId = @customerId;
-				
-		end -- END WHILE
+			print('* Rien à mettre à jour');	
+			return;
+		end -- END ELSE
+		
+		open @curseurVentes;
+		fetch @curseurVentes into @unitPrice, @quantity, @orderId, @customerId, @employeeId, @productId;
+	
+		-- TODO: Executer les autres procédures ici <-----
+		
 	end
 go
+
+-- Procédure permettant d'ajouter des nouveaux clients.
+create procedure proc_ajout_clients
+as
+	begin
+		declare
+		@curseurClients as cursor,
+		@nomContact as nvarchar(30),
+		@nomVille as nvarchar(15),
+		@nomPays as nvarchar(15),
+		@nbOccurences as int;
+		
+		set @curseurClients = cursor for
+			select contactName, city, country
+			from northwind.dbo.customers;
+			
+		open @curseurClients;
+		fetch @curseurClients into @nomContact, @nomVille, @nomPays;
+		
+		while @@fetch_status = 0
+		begin
+			set @nbOccurences = (
+				select count(*) from tp2_entrepot.dbo.dimension_client
+				where nom_contact=@nomContact and nom_ville=@nomVille and nom_pays=@nomPays
+			);
+			
+			if @nbOccurences = 0
+				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays) values (
+					@nomContact, @nomVille, @nomPays
+				);
+					
+			fetch @curseurClients into @nomContact, @nomVille, @nomPays;
+		end -- END WHILE
+		
+		close @curseurClients;
+	end
+go
+
