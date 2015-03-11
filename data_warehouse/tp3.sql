@@ -99,55 +99,52 @@ as
 		@curseurClientsNW as cursor,    -- Curseur des clients dans Northwind.
 		@idClientDC as int,             -- ID du client dans la dimension client.
 		@nomContact as nvarchar(30),
-		@adresse as nvarchar(60),
 		@nomVille as nvarchar(15),
+		@villeCompare as nvarchar(15),
 		@nomPays as nvarchar(15),
-		@nbOccurences as int;
+		@customerID as nchar(5),
+		@nbOccurences as int,
+		@continent as nvarchar(100),
+		@TSQL as nvarchar(4000);
 		
 		set @curseurClientsNW = cursor for
-			select contactName, city, country, address
+			select contactName, city, country, customerId
 			from northwind.dbo.customers;
 			
 		open @curseurClientsNW;
-		fetch @curseurClientsNW into @nomContact, @nomVille, @nomPays, @adresse;
+		fetch @curseurClientsNW into @nomContact, @nomVille, @nomPays, @customerID;
 		
 		while @@fetch_status = 0
 		begin
-			-- Compte le nombre d'occurences du client dans la dimension client.
+			SELECT @TSQL = N'SELECT @ContinentOut = continent FROM OPENQUERY(ORACLE,''SELECT continent FROM system.corrpayscont WHERE lower(country) = lower(''''' + @nomPays + ''''')'')'
+			exec sp_executesql 
+			@TSQL, 
+			N'@ContinentOut nvarchar(100) OUT', 
+			@ContinentOut=@continent OUT
+
 			set @nbOccurences = (
 				select count(*) from tp2_entrepot.dbo.dimension_client
-				where nom_contact=@nomContact and nom_ville=@nomVille and nom_pays=@nomPays
+				where identificateur = @customerID
 			);
 			
-			-- S'il n'y a pas d'occurences le client est ajouté à la dimension client.
-			-- Sinon pour chaque occurences le client est ajouté ayant comme clé étrangère la clé primarei de celui qui le précède.
-			-- (principe de liste chaînée)
+			-- Si le client n'existe pas dans la dimension.
 			if @nbOccurences = 0
-				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent) values (
-					@nomContact, @nomVille, @nomPays, dbo.func_recupere_continent(@nomPays)
-				);
+				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, identificateur)
+					values (@nomContact, @nomVille, @nomPays, @continent, @customerID);
 			else
 			begin
-				set @idClientDC = (
-					select id_client 
-					from tp2_entrepot.dbo.dimension_client 
-					where 
-					id_ancient_client = (
-						select top 1 id_ancient_client 
-						from tp2_entrepot.dbo.dimension_client 
-						where 
-							nom_contact = @nomContact and 
-							nom_ville = @nomVille and 
-							nom_pays = @nomPays
-						order by id_ancient_client desc
-					) 
-				);
-				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, id_ancient_client) values (
-					@nomContact, @nomVille, @nomPays, @idClientDC
-				);
+				set @villeCompare = (select nom_ville from dbo.dimension_client where identificateur=@customerID);
+				
+				if @nomVille != @villeCompare
+				begin
+					set @idClientDC = (select max(id_client) from dbo.dimension_client where identificateur = @customerID);
+					
+					insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, id_ancient_client, identificateur)
+						values (@nomContact, @nomVille, @nomPays, @continent, @idClientDC, @customerID);
+				end
 			end -- END ELSE
 					
-			fetch @curseurClientsNW into @nomContact, @nomVille, @nomPays, @adresse;
+			fetch @curseurClientsNW into @nomContact, @nomVille, @nomPays, @customerID;
 		end -- END WHILE
 		
 		close @curseurClientsNW;
@@ -198,3 +195,5 @@ as
 		close @curseurProduits;
 	end
 go
+
+exec proc_maj_clients

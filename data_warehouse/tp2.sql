@@ -42,15 +42,16 @@ as
 		@nomContact as nvarchar(30),
 		@nomVille as nvarchar(15),
 		@nomPays as nvarchar(15),
+		@identificateur as nchar(5),
 		@continent as nvarchar(100),
 		@TSQL NVARCHAR(4000);
 		
 		set @CurseurClient = cursor for
-		select contactName, city, country 
+		select contactName, city, country, customerID
 			from Northwind.dbo.Customers;
 			
 		open @CurseurClient;
-		fetch next from @CurseurClient into @nomContact, @nomVille, @nomPays
+		fetch next from @CurseurClient into @nomContact, @nomVille, @nomPays, @identificateur
 			while @@fetch_status = 0 begin
 				
 				SELECT @TSQL = N'SELECT @ContinentOut = continent FROM OPENQUERY(ORACLE,''SELECT continent FROM system.corrpayscont WHERE lower(country) = lower(''''' + @nomPays + ''''')'')'
@@ -59,10 +60,9 @@ as
 				N'@ContinentOut nvarchar(100) OUT', 
 				@ContinentOut=@continent OUT
 				
-				insert into tp2_entrepot.dbo.dimension_client values (
-					@nomContact, @nomVille, @nomPays, @continent
-				);
-				fetch next from @CurseurClient into @nomContact, @nomVille, @nomPays
+				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, identificateur)
+					values (@nomContact, @nomVille, @nomPays, @continent, @identificateur);
+				fetch next from @CurseurClient into @nomContact, @nomVille, @nomPays, @identificateur
 			end
 		close @CurseurClient;
 	end
