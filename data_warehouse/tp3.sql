@@ -129,7 +129,7 @@ as
 			
 			-- Si le client n'existe pas dans la dimension.
 			if @nbOccurences = 0
-				insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, identificateur)
+				insert into dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, identificateur)
 					values (@nomContact, @nomVille, @nomPays, @continent, @customerID);
 			else
 			begin
@@ -139,7 +139,7 @@ as
 				begin
 					set @idClientDC = (select max(id_client) from dbo.dimension_client where identificateur = @customerID);
 					
-					insert into tp2_entrepot.dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, id_ancient_client, identificateur)
+					insert into dbo.dimension_client (nom_contact, nom_ville, nom_pays, continent, id_ancient_client, identificateur)
 						values (@nomContact, @nomVille, @nomPays, @continent, @idClientDC, @customerID);
 				end
 			end -- END ELSE
@@ -158,42 +158,57 @@ as
 		@curseurProduits as cursor,
 		@nomProduit as nvarchar(40),
 		@nomFournisseur as nvarchar(40),
+		@fournisseurCompare as nvarchar(40),
 		@categorie as nvarchar(15),
 		@pays as nvarchar(15),
 		@systemeMesure as nvarchar(20),
-		@nbOccurences as int;
+		@productID as int,
+		@nbOccurences as int,
+		@compteur as smallint,
+		@idProduitDP as int;
 		
 		set @curseurProduits = cursor for
-			select p.productName, s.companyName, c.categoryName, s.country, p.quantityPerUnit
+			select p.productName, s.companyName, c.categoryName, s.country, p.quantityPerUnit, p.productID
 			from northwind.dbo.products as p
 				inner join northwind.dbo.suppliers as s on p.supplierId = s.supplierId
 				inner join northwind.dbo.categories as c on p.categoryId = c.categoryId;
 		
 		open @curseurProduits;
-		fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure;
+		fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID;
 			
 		while @@fetch_status = 0
 		begin
 			set @nbOccurences = (
-				select count(*) from tp2_entrepot.dbo.dimension_produit
-				where 
-					nom_produit=@nomProduit and 
-					nom_fournisseur=@nomFournisseur and 
-					categorie=@categorie and 
-					pays_fournisseur=@pays and 
-					systeme_mesure=@systemeMesure
+				select count(*) from dbo.dimension_produit
+				where identifiant = @productID
 			);
 			
+			-- Vérifie si le produit existe dans la dimension.
 			if @nbOccurences = 0
-				insert into tp2_entrepot.dbo.dimension_produit values (
-					@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure
-				);
+				insert into dbo.dimension_produit (nom_produit, nom_fournisseur, categorie, pays_fournisseur, systeme_mesure, identifiant)
+					values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID);
+			else
+			begin			
+			-- Vérifie que le fournisseur n'est pas changé plus de 3 fois.
+				set @compteur = (select count(*) from dbo.dimension_produit where identifiant=@productID);			
+				
+				if @compteur < 3
+				begin
+					set @idProduitDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@productID);
+					set @fournisseurCompare = (select nom_fournisseur from dbo.dimension_produit where identifiant=@productID);
+					
+					if @fournisseurCompare != @nomFournisseur
+						insert into dbo.dimension_produit
+							values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID, @idProduitDP);
+				end -- END IF
+			end -- END IF
 			
-			fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure;
+			fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID;
 		end -- END WHILE
 		
 		close @curseurProduits;
 	end
 go
 
-exec proc_maj_clients
+exec proc_maj_client
+exec proc_maj_produits
