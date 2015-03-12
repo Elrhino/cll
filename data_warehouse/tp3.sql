@@ -74,23 +74,6 @@ as
 	end
 go
 
-create function func_recupere_continent (@nomPays nvarchar(15))
-	returns nvarchar(100)
-as
-	begin
-		declare
-		@TSQL as nvarchar(4000),
-		@continent as nvarchar(100);
-
-		SELECT @TSQL = N'SELECT @ContinentOut = continent FROM OPENQUERY(ORACLE,''SELECT continent FROM system.corrpayscont WHERE lower(country) = lower(''''' + @nomPays + ''''')'')'
-		exec sp_executesql 
-		@TSQL, 
-		N'@ContinentOut nvarchar(100) OUT', 
-		@ContinentOut=@continent OUT
-
-		return @continent;
-	end
-go
 
 create procedure proc_maj_clients
 as
@@ -166,6 +149,7 @@ as
 	end
 go
 
+
 create procedure proc_maj_produits
 as
 	begin
@@ -173,13 +157,13 @@ as
 		@curseurProduits as cursor,
 		@nomProduit as nvarchar(40),
 		@nomFournisseur as nvarchar(40),
-		@fournisseurCompare as nvarchar(40),
+		@dernierFournisseur as nvarchar(40),
 		@categorie as nvarchar(15),
 		@pays as nvarchar(15),
 		@systemeMesure as nvarchar(20),
 		@idProduitNW as int,             -- ID du produit dans Northwind.
 		@nbOccurences as int,
-		@nbChangement as smallint,       -- Nombre de changements de fournisseur.
+		@nbFournisseurs as smallint,
 		@idProduitDP as int;             -- ID du produit dans la dimension.
 		
 		set @curseurProduits = cursor for
@@ -193,31 +177,44 @@ as
 			
 		while @@fetch_status = 0
 		begin
+		
+			-- Vérifie si le produit existe dans la dimension.	
 			set @nbOccurences = (
 				select count(*) from dbo.dimension_produit
 				where identifiant = @idProduitNW
 			);
 			
-			-- Vérifie si le produit existe dans la dimension.
-			
 			if @nbOccurences = 0
+			begin
+				print('* Nouveau produit ajouté à la dimension.');
 				insert into dbo.dimension_produit (nom_produit, nom_fournisseur, categorie, pays_fournisseur, systeme_mesure, identifiant)
 					values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW);
+			end
 			else
 			begin				
-			-- Vérifie que le fournisseur n'est pas changé plus de 3 fois.
+				-- Récupère le dernière fournisseur associé au produit.
+				set @dernierFournisseur = (
+				select nom_fournisseur from dbo.dimension_produit 
+				where id_produit = (
+					select max(id_produit) from dbo.dimension_produit
+					where identifiant=@idProduitNW
+					)
+				);
 				
-				set @nbChangement = (select count(*) from dbo.dimension_produit where identifiant=@idProduitNW);			
-				
-				if @nbChangement < 3
+				-- Compare le dernier fournisseur associé au produit au celui de NorthWind.
+				if @dernierFournisseur != @nomFournisseur
 				begin
-					set @idProduitDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@idProduitNW);
-					set @fournisseurCompare = (select nom_fournisseur from dbo.dimension_produit where identifiant=@idProduitNW);
-					
-					if @fournisseurCompare != @nomFournisseur
+					-- Vérifie que le fournisseur n'est pas changé plus de 3 fois.
+					set @nbFournisseurs = (select count(*) from dbo.dimension_produit where identifiant=@idProduitNW);
+
+					if @nbFournisseurs < 4
+					begin
+						print('* Mise à jour du fournisseur pour le produit: ' + @nomProduit);
+						set @idProduitDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@idProduitNW);
 						insert into dbo.dimension_produit
 							values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW, @idProduitDP);
-				end -- END IF
+					end
+				end
 			end -- END IF
 			
 			fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW;
@@ -227,5 +224,5 @@ as
 	end
 go
 
-exec proc_maj_clients
+-- exec proc_maj_clients
 exec proc_maj_produits
