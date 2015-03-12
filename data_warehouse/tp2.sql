@@ -87,7 +87,7 @@ as
 		open @ProductsCursor;
 		fetch next from @ProductsCursor into @nomProduit, @nomFournisseur, @categorie, @pays, @mesure
 			while @@fetch_status = 0 begin
-				insert into tp2_entrepot.dbo.dimension_produit values (
+				insert into tp2_entrepot.dbo.dimension_produit (nom_produit, nom_fournisseur, categorie, pays_fournisseur, systeme_mesure) values (
 					@nomProduit, @nomFournisseur, @categorie, @pays, @mesure
 				);
 				fetch next from @ProductsCursor into @nomProduit, @nomFournisseur, @categorie, @pays, @mesure
@@ -208,5 +208,5 @@ exec proc_insert_client;
 exec proc_insert_produit;
 exec proc_insert_employe;
 exec proc_insert_fait;
-select * from vue_employes order by annee_financiere, nom_employe
-select * from vue_ventes_mensuelles order by mois
+--select * from vue_employes order by annee_financiere, nom_employe
+--select * from vue_ventes_mensuelles order by mois

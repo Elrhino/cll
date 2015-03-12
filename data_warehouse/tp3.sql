@@ -36,7 +36,11 @@ as
 		@orderId as int,
 		@customerId as int,
 		@employeeId as int,
-		@idProduitNW as int;
+		@productId as int,
+		@customerIdDC as int,
+		@productIdDP as int,
+		@employeeIdDE as int,
+		@dateIdDD as int;
 		
 		set @dateDerniereVenteFV = (
 			select top 1 date_vente 
@@ -52,7 +56,12 @@ as
 								  
 		if @dateDerniereVenteNW > @dateDerniereVenteFV
 			set @curseurVentes = cursor for
-			select o.unitPrice, o.quantity, o.orderId, o.customerId, o.employeeId, od.productId
+			select
+				o.unitPrice, 
+				o.quantity,
+				o.orderID,
+				c.customerID,
+				p.productID
 			from northwind.dbo.orders as o
 				inner join northwind.dbo.[Orders Details] as od on o.orderId = od.orderId
 				inner join northwind.dbo.customers as c on o.customerId = c.customerId
@@ -67,10 +76,16 @@ as
 		end -- END ELSE
 		
 		open @curseurVentes;
-		fetch @curseurVentes into @unitPrice, @quantity, @orderId, @customerId, @employeeId, @idProduitNW;
-	
-		-- TODO: Executer les autres procédures ici <-----
+		fetch @curseurVentes into @unitPrice, @quantity, @orderId, @customerId, @productId;
 		
+		while @@fetch_status = 0
+			set @customerIdDC = (select max(id_client) from dbo.dimension_client where identifiant=@customerId);
+			set @productIdDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@productId);
+			set @employeeIdDE = (select id_employe from dbo.dimension_employe where nom_employe = @employeeName and titre = @employeeTitle);
+			set @dateIdDD = (select id_date from tp2_entrepot.dbo.date_details where date_vente = @orderDate);
+			
+			insert into dbo.fait_vente values (@unitPrice, @quantity, @customerIdDC, @productIdDP, @employeeIdDE);
+		end -- END WHILE
 	end
 go
 
@@ -224,5 +239,5 @@ as
 	end
 go
 
--- exec proc_maj_clients
+exec proc_maj_clients
 exec proc_maj_produits
