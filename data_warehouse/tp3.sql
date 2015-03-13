@@ -20,10 +20,6 @@ IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'proc_maj_produ
    DROP PROCEDURE proc_maj_produits
 GO
 
-IF EXISTS (SELECT * FROM sys.objects WHERE type = 'FN' AND name = 'func_recupere_continent')
-   DROP FUNCTION func_recupere_continent
-GO
-
 create procedure proc_maj_fv
 as
 	begin
@@ -34,17 +30,21 @@ as
 		@unitPrice as money,
 		@quantity as int, 
 		@orderId as int,
-		@customerId as int,
+		@customerId as nchar(5),
 		@employeeId as int,
 		@productId as int,
-		@customerIdDC as int,
-		@productIdDP as int,
-		@employeeIdDE as int,
-		@dateIdDD as int;
+		@idDC as int,        -- ID dimension client.
+		@idDP as int,        -- ID dimension produit.
+		@idDE as int,        -- ID dimension employé.
+		@idDT as int,        -- ID dimension temps (date).
+		@employeeName as nvarchar(30),
+		@employeeTitle as nvarchar(30),
+		@orderDate as datetime;
 		
 		set @dateDerniereVenteFV = (
 			select top 1 date_vente 
-			from tp2_entrepot.dbo.date_details 
+			from tp2_entrepot.dbo.fait_vente fv 
+				inner join date_details dt on fv.id_date = dt.id_date
 			order by date_vente desc
 		);
 									 
@@ -55,20 +55,25 @@ as
 		);
 								  
 		if @dateDerniereVenteNW > @dateDerniereVenteFV
+		begin
 			set @curseurVentes = cursor for
 			select
-				o.unitPrice, 
-				o.quantity,
+				p.unitPrice, 
+				od.quantity,
 				o.orderID,
 				c.customerID,
-				p.productID
+				p.productID,
+				e.FirstName + ' ' + e.LastName as 'Nom de l''employé',
+				e.Title,
+				o.orderDate
 			from northwind.dbo.orders as o
-				inner join northwind.dbo.[Orders Details] as od on o.orderId = od.orderId
+				inner join northwind.dbo.[Order Details] as od on o.orderId = od.orderId
 				inner join northwind.dbo.customers as c on o.customerId = c.customerId
-				inner join northwind.dbo.employes as e on o.employeeId = e.employeeId
+				inner join northwind.dbo.employees as e on o.employeeId = e.employeeId
 				inner join northwind.dbo.products as p on od.productId = p.productId
 			where orderDate > @dateDerniereVenteFV
 			order by orderDate;
+		end
 		else
 		begin
 			print('* Rien à mettre à jour');	
@@ -76,16 +81,21 @@ as
 		end -- END ELSE
 		
 		open @curseurVentes;
-		fetch @curseurVentes into @unitPrice, @quantity, @orderId, @customerId, @productId;
+		fetch @curseurVentes into @unitPrice, @quantity, @orderId, @customerId, @productId, @employeeName, @employeeTitle, @orderDate;
 		
 		while @@fetch_status = 0
-			set @customerIdDC = (select max(id_client) from dbo.dimension_client where identifiant=@customerId);
-			set @productIdDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@productId);
-			set @employeeIdDE = (select id_employe from dbo.dimension_employe where nom_employe = @employeeName and titre = @employeeTitle);
-			set @dateIdDD = (select id_date from tp2_entrepot.dbo.date_details where date_vente = @orderDate);
+		begin
+			set @idDC = (select max(id_client) from dbo.dimension_client where identificateur=@customerId);
+			set @idDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@productId);
+			set @idDE = (select id_employe from dbo.dimension_employe where nom_employe = @employeeName and titre = @employeeTitle);
+			set @idDT = (select id_date from tp2_entrepot.dbo.date_details where date_vente = @orderDate);
 			
-			insert into dbo.fait_vente values (@unitPrice, @quantity, @customerIdDC, @productIdDP, @employeeIdDE);
+			insert into dbo.fait_vente values (@unitPrice, @quantity, @idDC, @idDP, @idDE, @idDT);
+			
+			fetch @curseurVentes into @unitPrice, @quantity, @orderId, @customerId, @productId, @employeeName, @employeeTitle, @orderDate;
 		end -- END WHILE
+		
+		close @curseurVentes;
 	end
 go
 
@@ -126,7 +136,7 @@ as
 				where identificateur = @customerID
 			);
 			
-			-- Si le client n'existe pas dans la dimension.			
+			-- Si le client n'existe pas dans la dimension, on l'ajoute.
 			if @nbOccurences = 0
 			begin
 				print('* Nouveau client ajouté à la dimension.');
@@ -137,10 +147,10 @@ as
 			begin
 				-- Récupère la dernière ville associé au client.
 				set @villeCompare = (
-				select nom_ville from dbo.dimension_client 
-				where id_client = (
-					select max(id_client) from dbo.dimension_client 
-					where identificateur=@customerID
+					select nom_ville from dbo.dimension_client 
+					where id_client = (
+						select max(id_client) from dbo.dimension_client 
+						where identificateur=@customerID
 					)
 				);
 				
@@ -176,10 +186,10 @@ as
 		@categorie as nvarchar(15),
 		@pays as nvarchar(15),
 		@systemeMesure as nvarchar(20),
-		@idProduitNW as int,             -- ID du produit dans Northwind.
+		@productID as int,               -- ID du produit dans Northwind.
+		@idDP as int,                    -- ID du produit dans la dimension.
 		@nbOccurences as int,
-		@nbFournisseurs as smallint,
-		@idProduitDP as int;             -- ID du produit dans la dimension.
+		@nbFournisseurs as smallint;
 		
 		set @curseurProduits = cursor for
 			select p.productName, s.companyName, c.categoryName, s.country, p.quantityPerUnit, p.productID
@@ -188,7 +198,7 @@ as
 				inner join northwind.dbo.categories as c on p.categoryId = c.categoryId;
 		
 		open @curseurProduits;
-		fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW;
+		fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID;
 			
 		while @@fetch_status = 0
 		begin
@@ -196,14 +206,14 @@ as
 			-- Vérifie si le produit existe dans la dimension.	
 			set @nbOccurences = (
 				select count(*) from dbo.dimension_produit
-				where identifiant = @idProduitNW
+				where identifiant = @productID
 			);
 			
 			if @nbOccurences = 0
 			begin
 				print('* Nouveau produit ajouté à la dimension.');
 				insert into dbo.dimension_produit (nom_produit, nom_fournisseur, categorie, pays_fournisseur, systeme_mesure, identifiant)
-					values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW);
+					values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID);
 			end
 			else
 			begin				
@@ -212,7 +222,7 @@ as
 				select nom_fournisseur from dbo.dimension_produit 
 				where id_produit = (
 					select max(id_produit) from dbo.dimension_produit
-					where identifiant=@idProduitNW
+					where identifiant=@productID
 					)
 				);
 				
@@ -220,19 +230,19 @@ as
 				if @dernierFournisseur != @nomFournisseur
 				begin
 					-- Vérifie que le fournisseur n'est pas changé plus de 3 fois.
-					set @nbFournisseurs = (select count(*) from dbo.dimension_produit where identifiant=@idProduitNW);
+					set @nbFournisseurs = (select count(*) from dbo.dimension_produit where identifiant=@productID);
 
 					if @nbFournisseurs < 4
 					begin
 						print('* Mise à jour du fournisseur pour le produit: ' + @nomProduit);
-						set @idProduitDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@idProduitNW);
+						set @idDP = (select max(id_produit) from dbo.dimension_produit where identifiant=@productID);
 						insert into dbo.dimension_produit
-							values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW, @idProduitDP);
+							values (@nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID, @idDP);
 					end
 				end
 			end -- END IF
 			
-			fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @idProduitNW;
+			fetch @curseurProduits into @nomProduit, @nomFournisseur, @categorie, @pays, @systemeMesure, @productID;
 		end -- END WHILE
 		
 		close @curseurProduits;
@@ -241,3 +251,4 @@ go
 
 exec proc_maj_clients
 exec proc_maj_produits
+exec proc_maj_fv

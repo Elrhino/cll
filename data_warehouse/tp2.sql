@@ -77,20 +77,21 @@ as
 		@nomFournisseur as nvarchar(40),
 		@categorie as nvarchar(15),
 		@pays as nvarchar(15),
-		@mesure as nvarchar(20);
+		@mesure as nvarchar(20),
+		@productID as int;
 		
 		set @ProductsCursor = cursor for
-		select p.productName, s.companyName, c.categoryName, s.country, p.quantityPerUnit
+		select p.productName, s.companyName, c.categoryName, s.country, p.quantityPerUnit, p.productID
 			from products as p
 				inner join suppliers as s on p.supplierid = s.supplierId
 				inner join categories as c on p.categoryId = c.categoryId;
 		open @ProductsCursor;
-		fetch next from @ProductsCursor into @nomProduit, @nomFournisseur, @categorie, @pays, @mesure
+		fetch next from @ProductsCursor into @nomProduit, @nomFournisseur, @categorie, @pays, @mesure, @productID
 			while @@fetch_status = 0 begin
-				insert into tp2_entrepot.dbo.dimension_produit (nom_produit, nom_fournisseur, categorie, pays_fournisseur, systeme_mesure) values (
-					@nomProduit, @nomFournisseur, @categorie, @pays, @mesure
+				insert into tp2_entrepot.dbo.dimension_produit (nom_produit, nom_fournisseur, categorie, pays_fournisseur, systeme_mesure, identifiant) values (
+					@nomProduit, @nomFournisseur, @categorie, @pays, @mesure, @productID
 				);
-				fetch next from @ProductsCursor into @nomProduit, @nomFournisseur, @categorie, @pays, @mesure
+				fetch next from @ProductsCursor into @nomProduit, @nomFournisseur, @categorie, @pays, @mesure, @productID
 			end
 		close @ProductsCursor;
 	end
@@ -150,7 +151,7 @@ as
 		
 		set @CurseurVentes = cursor for
 		select 
-			od.unitPrice as 'Prix unitaire',
+			p.unitPrice as 'Prix unitaire',
 			od.quantity as 'Quantité',
 			c.contactName as 'Nom du contact', 
 			p.productName as 'Nom de produit',
